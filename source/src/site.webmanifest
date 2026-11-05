@@ -1,0 +1,13 @@
+{
+  "name": "Vizion Insurance Company, Ltd.",
+  "short_name": "Vizion",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#f7f6f1",
+  "theme_color": "#17753a",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

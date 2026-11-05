@@ -5,7 +5,7 @@
 #                               (hidden from search engines so it can't compete with the real site)
 #   .\tools\package.ps1 -GitHub share\Vizion-Website-for-GitHub.zip  - repository contents: the site at the top
 #                               (ready for GitHub Pages, also hidden from search engines) plus editable source
-param([switch]$Web, [switch]$GitHub)
+param([switch]$Web, [switch]$GitHub, [string]$GitHubBase = '/vizion-website-preview/')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -41,6 +41,11 @@ if ($GitHub) {
     # the editable project in "source". Company documents, original photos and internal notes stay out.
     Copy-Item (Join-Path $root 'site\*') $stage -Recurse
     Set-NoIndex $stage
+    # GitHub Pages serves a project site one level down (/<repository>/), so the 404 page's
+    # root-relative links need that prefix. Pass -GitHubBase '/' for a user site or custom domain.
+    $notFound = Join-Path $stage '404.html'
+    $html = [IO.File]::ReadAllText($notFound, $utf8).Replace('href="/', "href=""$GitHubBase").Replace('src="/', "src=""$GitHubBase")
+    [IO.File]::WriteAllText($notFound, $html, $utf8)
     # Without this file GitHub Pages runs Jekyll, which would try to process the source templates.
     # (A line break rather than empty: GitHub's web uploader can skip empty files.)
     [IO.File]::WriteAllText((Join-Path $stage '.nojekyll'), "`n", $utf8)

@@ -162,7 +162,7 @@ How to open it
 
 Please note
 - This is a preview for internal review, not the live website.
-- The logo is a redrawn placeholder until the official logo file is supplied.
+- The logo is traced from a photo of the office sign until the official logo file is supplied.
 - Items still to be confirmed are listed in PROJECT-NOTES.md (ask the web team).
 '@
     [IO.File]::WriteAllText((Join-Path $stage 'HOW-TO-OPEN.txt'), $readme.Replace("`n", "`r`n"), $utf8)

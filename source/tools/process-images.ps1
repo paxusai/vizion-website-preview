@@ -249,9 +249,11 @@ public static class VizImg
         return p;
     }
 
-    // Square app icon drawn from the same geometry as favicon.svg (64-unit grid).
-    public static void AppIcon(string dst, int size)
+    // Square app icon drawn from the paths in favicon.svg (64-unit grid; M, C and Z commands only).
+    // Fills: url(#s) is the green gradient, url(#i) the seed gradient, anything else a solid #rrggbb.
+    public static void AppIcon(string svgFile, string dst, int size)
     {
+        string svg = System.IO.File.ReadAllText(svgFile);
         using (var b = new Bitmap(size, size, PixelFormat.Format32bppArgb))
         using (var g = Graphics.FromImage(b))
         {
@@ -260,34 +262,43 @@ public static class VizImg
             float k = size / 64f * 0.78f, o = size * 0.11f;
             g.TranslateTransform(o, o);
             g.ScaleTransform(k, k);
-            using (var swoosh = new GraphicsPath())
-            {
-                swoosh.AddArc(4.5f, 4.4f, 54f, 54f, 136.4f, 212.1f);
-                swoosh.AddArc(9f, 12f, 52f, 52f, 332.4f, -180f);
-                swoosh.CloseFigure();
-                using (var br = new LinearGradientBrush(new RectangleF(0, 0, 64, 64), Color.FromArgb(27, 133, 64), Color.FromArgb(73, 186, 98), 45f))
-                    g.FillPath(br, swoosh);
-            }
-            using (var leaf = new GraphicsPath())
-            {
-                leaf.AddArc(5f, 7f, 52f, 52f, 2.2f, 90f);
-                leaf.AddArc(-55.3f, -55.4f, 120f, 120f, 65.1f, -35.7f);
-                leaf.CloseFigure();
-                using (var br = new SolidBrush(Color.FromArgb(46, 165, 82))) g.FillPath(br, leaf);
-            }
-            var st = g.Save();
-            g.TranslateTransform(32.5f, 34f);
-            g.RotateTransform(-25f);
-            using (var br = new LinearGradientBrush(new RectangleF(-12.5f, -11f, 25f, 22f), Color.FromArgb(160, 143, 103), Color.FromArgb(92, 80, 52), 60f))
-                g.FillEllipse(br, -12.5f, -11f, 25f, 22f);
-            g.Restore(st);
-            using (var pen = new Pen(Color.FromArgb(225, 214, 182), 2.2f))
-            {
-                pen.StartCap = LineCap.Round; pen.EndCap = LineCap.Round;
-                g.DrawArc(pen, 24f, 25f, 15f, 15f, 150f, 120f);
-            }
+            var paths = System.Text.RegularExpressions.Regex.Matches(svg, "<path fill=\"([^\"]+)\" d=\"([^\"]+)\"");
+            if (paths.Count == 0) throw new Exception("No paths found in " + svgFile);
+            foreach (System.Text.RegularExpressions.Match m in paths)
+                using (var path = ParsePath(m.Groups[2].Value))
+                {
+                    var r = path.GetBounds();
+                    string fill = m.Groups[1].Value;
+                    Brush br;
+                    if (fill == "url(#s)") br = new LinearGradientBrush(r, Color.FromArgb(27, 133, 64), Color.FromArgb(73, 186, 98), 45f);
+                    else if (fill == "url(#i)") br = new LinearGradientBrush(r, Color.FromArgb(107, 82, 56), Color.FromArgb(61, 44, 31), 60f);
+                    else br = new SolidBrush(ColorTranslator.FromHtml(fill));
+                    using (br) g.FillPath(br, path);
+                }
             b.Save(dst, ImageFormat.Png);
         }
+    }
+
+    static GraphicsPath ParsePath(string d)
+    {
+        var path = new GraphicsPath();
+        var tokens = System.Text.RegularExpressions.Regex.Matches(d, "[MCZ]|-?[0-9]*\\.?[0-9]+");
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        int i = 0; char cmd = ' '; PointF cur = PointF.Empty;
+        Func<float> num = () => float.Parse(tokens[i++].Value, inv);
+        while (i < tokens.Count)
+        {
+            string t = tokens[i].Value;
+            if (t == "M" || t == "C" || t == "Z") { cmd = t[0]; i++; if (cmd == 'Z') path.CloseFigure(); continue; }
+            if (cmd == 'M') { cur = new PointF(num(), num()); path.StartFigure(); cmd = 'C'; }
+            else if (cmd == 'C')
+            {
+                var p1 = new PointF(num(), num()); var p2 = new PointF(num(), num()); var p3 = new PointF(num(), num());
+                path.AddBezier(cur, p1, p2, p3); cur = p3;
+            }
+            else throw new Exception("Unsupported path data near token " + i);
+        }
+        return path;
     }
 }
 '@
@@ -295,13 +306,20 @@ public static class VizImg
 function Out-Img($name) { Join-Path $outDir $name }
 function In-Img($name) { Join-Path $srcDir $name }
 
-# Team portraits (3:4 originals). Two widths for srcset.
-$portraits = @{ 'Sir John.jpg' = 'team-john'; 'Aimee.jpg' = 'team-aimee'; 'LJ.jpg' = 'team-lj'; 'Owee.jpg' = 'team-owee'; 'Rasem.jpg' = 'team-rasem' }
+# Team portraits, cropped to 4:5 (x, y, width, height in source pixels) with faces in the upper third.
+# Two widths for srcset. Kathleen.jpg and Joey.jpg are retouched copies of "<name> (original).jpg":
+# clothing recoloured to the uniform grey, Joey's with the embroidered logo; Kathleen.jpg is already 4:5.
+$portraits = @{
+    'Sir John.jpg' = @('team-john', 0, 100, 1200, 1500)
+    'LJ.jpg'       = @('team-lj', 0, 100, 1200, 1500)
+    'Rasem.jpg'    = @('team-rasem', 0, 100, 1200, 1500)
+    'Kathleen.jpg' = @('team-kathleen', 0, 0, 0, 0)
+    'Joey.jpg'     = @('team-joey', 62, 0, 1296, 1620)
+}
 foreach ($k in $portraits.Keys) {
-    $base = $portraits[$k]
-    # Crop to 4:5 from the lower part of the frame so faces sit in the upper third.
-    $a = [VizImg]::ResizeJpeg((In-Img $k), (Out-Img "$base-800.jpg"), 800, 80, 0, 100, 1200, 1500)
-    $b = [VizImg]::ResizeJpeg((In-Img $k), (Out-Img "$base-480.jpg"), 480, 78, 0, 100, 1200, 1500)
+    $base, $cx, $cy, $cw, $ch = $portraits[$k]
+    $a = [VizImg]::ResizeJpeg((In-Img $k), (Out-Img "$base-800.jpg"), 800, 80, $cx, $cy, $cw, $ch)
+    $b = [VizImg]::ResizeJpeg((In-Img $k), (Out-Img "$base-480.jpg"), 480, 78, $cx, $cy, $cw, $ch)
     "$base  $a / $b"
 }
 
@@ -318,8 +336,9 @@ Remove-Item (Out-Img 'team-group-mask-800.png')
 "team-group done"
 
 [VizImg]::OgImage((Out-Img 'team-group-1400.jpg'), (Out-Img 'team-group-mask.png'), (Out-Img 'og-image.jpg'))
-[VizImg]::AppIcon((Join-Path $root 'src\apple-touch-icon.png'), 180)
-[VizImg]::AppIcon((Join-Path $root 'src\icon-512.png'), 512)
+$favicon = Join-Path $root 'src\favicon.svg'
+[VizImg]::AppIcon($favicon, (Join-Path $root 'src\apple-touch-icon.png'), 180)
+[VizImg]::AppIcon($favicon, (Join-Path $root 'src\icon-512.png'), 512)
 "og-image + icons done"
 
 Get-ChildItem $outDir | Select-Object Name, @{n='KB';e={[math]::Round($_.Length/1KB)}} | Format-Table -AutoSize | Out-String
